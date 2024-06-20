@@ -1,0 +1,125 @@
+// This file is part of nand2tetris, as taught in The Hebrew University, and
+// was written by Aviv Yaish. It is an extension to the specifications given
+// [here](https://www.nand2tetris.org) (Shimon Schocken and Noam Nisan, 2017),
+// as allowed by the Creative Common Attribution-NonCommercial-ShareAlike 3.0
+// Unported [License](https://creativecommons.org/licenses/by-nc-sa/3.0/).
+
+// This chip is an extension of the regular CPU that uses the extended ALU.
+// If instruction[15]==0 or (instruction[14]==1 and instruction[13]==1),
+// then CpuMul behaves exactly the same as the regular CPU.
+// If instruction[15]==1 and instruction[14]==0 the chip will behave as follows:
+// | Instruction           | 15 | 14 | 13 | a | c1 | c2 | c3 | c4 | c5 | c6 |
+// |-----------------------|:--:|:--:|:--:|:-:|:--:|:--:|:--:|:--:|:--:|:--:|
+// | Regular a-instruction |  0 |  * |  * | * |  * |  * |  * |  * |  * |  * |
+// | Regular c-instruction |  1 |  1 |  1 | * |  * |  * |  * |  * |  * |  * |
+// | dest=A<<;jump         |  1 |  0 |  1 | 0 |  1 |  0 |  0 |  0 |  0 |  0 |
+// | dest=D<<;jump         |  1 |  0 |  1 | 0 |  1 |  1 |  0 |  0 |  0 |  0 |
+// | dest=M<<;jump         |  1 |  0 |  1 | 1 |  1 |  0 |  0 |  0 |  0 |  0 |
+// | dest=A>>;jump         |  1 |  0 |  1 | 0 |  0 |  0 |  0 |  0 |  0 |  0 |
+// | dest=D>>;jump         |  1 |  0 |  1 | 0 |  0 |  1 |  0 |  0 |  0 |  0 |
+// | dest=M>>;jump         |  1 |  0 |  1 | 1 |  0 |  0 |  0 |  0 |  0 |  0 |
+// Where:
+// - "<<" is a left shift, and ">>" is a right shift, as defined in project 2.
+//   These notations were chosen because they are used in real programming
+//   languages.
+// - dest and jump can take the same values as in the regular CPU.
+
+CHIP CpuMul {
+    IN  
+        inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset=1) or continue executing
+                         // the current program (reset=0).
+    OUT 
+        outM[16],        // M value output
+        writeM,          // Write into M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+    
+    PARTS:
+    // Put your code here:
+
+    // this implementation is identical to the CPU implementation except the ExtendAlu part
+
+    // setting the right inputs for ExtendAlu
+    Not(in=instruction[15], out=neg15);
+    And(a=instruction[14], b=instruction[13], out=and1);
+    Or(a=and1, b=neg15, out=instruction8);
+    Mux(a=true, b=instruction[13], sel=instruction[15], out=instruction7);
+    ExtendAlu(x=outD, y=AmuxM, instruction[8]=instruction8, instruction[7]=instruction7, instruction[6]=false,
+        instruction[0..5]=instruction[6..11], out=outM, out=outALU, zr=zr, ng=ng);
+
+     // if instruction[15] = 0: A instruction. else, C instruction
+     Mux16(a=instruction, b=outALU, sel=instruction[15], out=inA);
+
+     // if instruction is A instruction: load bit of A register = 1
+     // if instruction is C instruction: load bit of A register = instruction[5]
+     Mux(a=true, b=instruction[5], sel=instruction[15], out=loadA);
+ 
+     ARegister(in=inA, load=loadA, out=Aout, out[0..14]=addressM);
+ 
+     Mux16(a=Aout, b=inM, sel=instruction[12], out=AmuxM);
+ 
+     // case A instruction: loadD = 0, case C instruction: loadD = instruction[4]
+     And(a=instruction[15], b=instruction[4], out=loadD);
+ 
+     DRegister(in=outALU, load=loadD, out=outD);
+ 
+     // in case of C instruction: if instruction[3] = 1 then writeM = 1
+     And(a=instruction[15], b=instruction[3], out=writeM);
+ 
+     //writing the control by DNF
+     Not(in=instruction[0], out=nj3);
+     Not(in=instruction[1], out=nj2);
+     Not(in=instruction[2], out=nj1);
+ 
+     Not(in=zr, out=nzr);
+     Not(in=ng, out=nng);
+     And(a=nzr, b=nng, out=pos);
+ 
+     //JGT
+     And(a=nj1, b=nj2, out=jgt1);
+     And(a=jgt1, b=instruction[0], out=jgt2);
+     And(a=jgt2, b=pos, out=jgt);
+ 
+     //JEQ
+     And(a=nj1, b=instruction[1], out=jeq1);
+     And(a=jeq1, b=nj3, out=jeq2);
+     And(a=zr, b=jeq2, out=jeq);
+ 
+     //JGE
+     And(a=jeq1, b=instruction[0], out=jge1);
+     And(a=nng, b=jge1, out=jge);
+ 
+     //JLT
+     And(a=instruction[2], b=nj2, out=jlt1);
+     And(a=jlt1, b=nj3, out=jlt2);
+     And(a=ng, b=jlt2, out=jlt);
+ 
+     //JNE
+     And(a=jlt1, b=instruction[0], out=jne1);
+     And(a=nzr, b=jne1, out=jne);
+ 
+     //JLE
+     And(a=instruction[2], b=instruction[1], out=jle1);
+     And(a=jle1, b=nj3, out=jle2);
+     Not(in=pos, out=npos);
+     And(a=jle2, b=npos, out=jle);
+ 
+     //JMP
+     And(a=jle1, b=instruction[0], out=jmp);
+ 
+     // g = Or(jgt, jeq, jge, jlt, jne, jle, jmp)
+     Or(a=jgt, b=jeq, out=g1);
+     Or(a=g1, b=jge, out=g2);
+     Or(a=g2, b=jlt, out=g3);
+     Or(a=g3, b=jne, out=g4);
+     Or(a=g4, b=jle, out=g5);
+     Or(a=g5, b=jmp, out=g);
+ 
+     // if g=1 and instruction is C instruction then load = 1
+     And(a=g, b=instruction[15], out=load);
+ 
+     PC(in=Aout, load=load, inc=true, reset=reset, out=outpc, out[0..14]=pc);    
+}

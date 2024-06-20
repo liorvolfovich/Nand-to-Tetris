@@ -1,0 +1,53 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/Memory.hdl
+
+/**
+ * The complete address space of the Hack computer's memory,
+ * including RAM and memory-mapped I/O. 
+ * The chip facilitates read and write operations, as follows:
+ *     Read:  out(t) = Memory[address(t)](t)
+ *     Write: if load(t-1) then Memory[address(t-1)](t) = in(t-1)
+ * In words: the chip always outputs the value stored at the memory 
+ * location specified by address. If load==1, the in value is loaded 
+ * into the memory location specified by address. This value becomes 
+ * available through the out output from the next time step onward.
+ * Address space rules:
+ * Only the upper 16K+8K+1 words of the Memory chip are used. 
+ * Access to address>0x6000 is invalid. Access to any address in 
+ * the range 0x4000-0x5FFF results in accessing the screen memory 
+ * map. Access to address 0x6000 results in accessing the keyboard 
+ * memory map. The behavior in these addresses is described in the 
+ * Screen and Keyboard chip specifications given in the book.
+ */
+
+CHIP Memory {
+    IN in[16], load, address[15];
+    OUT out[16];
+
+    PARTS:
+    // Put your code here:
+
+    // if adress[14] = 0 and load = 1 then loadram = 1
+    Mux(a=true, b=false, sel=address[14], out=loadram1);
+    Mux(a=false, b=loadram1, sel=load, out=loadram);
+
+    // if adress[13..14] = 10 and load = 1 then loadscreen = 1
+    Mux(a=true, b=false, sel=address[13], out=loadscreen1);
+    Mux(a=false, b=loadscreen1, sel=address[14], out=loadscreen2);
+    Mux(a=false, b=loadscreen2, sel=load, out=loadscreen);
+
+    RAM16K(in=in, load=loadram, address=address[0..13], out=ramout);
+
+    // if adress belongs to Screen then we need to calculate: adress - 16384.
+    // however, 16384 in binary is 100000000000000. therefore we can use address[0..12]
+    Screen(in=in, load=loadscreen, address=address[0..12], out=screenout);
+
+    Keyboard(out=keyboardout);
+
+    //if adress[13..14] = 11 then the address belongs to Keyboard
+    //if adress[13..14] = 10 then the address belongs to Screen
+    //if adress[13..14] = 00 or 01 then the address belongs to RAM16
+    Mux4Way16(a=ramout, b=ramout, c=screenout, d=keyboardout, sel=address[13..14], out=out);
+}
